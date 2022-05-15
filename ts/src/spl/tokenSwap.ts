@@ -21,12 +21,132 @@ export function coder(): SplTokenSwapCoder {
 export type SplTokenSwap = {
   version: "0.1.0";
   name: "spl_token_swap";
-  instructions: []
+  instructions: [
+    {
+      name: "initialize";
+      accounts: [
+        {
+          name: "swap";
+          isMut: true;
+          isSigner: true;
+        },
+        {
+          name: "authority";
+          isMut: false;
+          isSigner: false;
+        },
+        {
+          name: "tokenA";
+          isMut: false;
+          isSigner: false;
+        },
+        {
+          name: "tokenB";
+          isMut: false;
+          isSigner: false;
+        },
+        {
+          name: "poolMint";
+          isMut: true;
+          isSigner: false;
+        },
+        {
+          name: "feeAccount";
+          isMut: false;
+          isSigner: false;
+        },
+        {
+          name: "destination";
+          isMut: true;
+          isSigner: false;
+        },
+        {
+          name: "token_program";
+          isMut: false;
+          isSigner: false;
+        }
+      ];
+      args: [
+        {
+          name: "fees",
+          type: {
+            defined: "Fees"
+          }
+        },
+        {
+          name: "swapCurve";
+          type: {
+            defined: "SwapCurve"
+          }
+        }
+      ];
+    },
+  ]
 }; // TODO
 
 
   export const IDL: SplTokenSwap = {
     version: "0.1.0",
     name: "spl_token_swap",
-    instructions: []
+    instructions: [
+      {
+        name: "initialize",
+        accounts: [
+          {
+            name: "swap",
+            isMut: true,
+            isSigner: true,
+          },
+          {
+            name: "authority",
+            isMut: false,
+            isSigner: false,
+          },
+          {
+            name: "tokenA",
+            isMut: false,
+            isSigner: false,
+          },
+          {
+            name: "tokenB",
+            isMut: false,
+            isSigner: false,
+          },
+          {
+            name: "poolMint",
+            isMut: true,
+            isSigner: false,
+          },
+          {
+            name: "feeAccount",
+            isMut: false,
+            isSigner: false,
+          },
+          {
+            name: "destination",
+            isMut: true,
+            isSigner: false,
+          },
+          {
+            name: "token_program",
+            isMut: false,
+            isSigner: false,
+          }
+        ],
+        args: [
+          {
+            name: "fees",
+            type: {
+              defined: "Fees"
+            }
+          },
+          {
+            name: "swapCurve",
+            type: {
+              defined: "SwapCurve"
+            }
+          }
+        ],
+      },
+    ]
   }; // TODO
