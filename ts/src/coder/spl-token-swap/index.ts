@@ -6,9 +6,9 @@ import { SplTokenSwapAccountsCoder } from "./accounts.js";
 import { SplTokenSwapEventsCoder } from "./events.js";
 
 /**
- * Coder for the SPL token program.
+ * Coder for the SPL token swap program.
  */
-export class SplTokenCoder implements Coder {
+export class SplTokenSwapCoder implements Coder {
   readonly instruction: SplTokenSwapInstructionCoder;
   readonly accounts: SplTokenSwapAccountsCoder;
   readonly state: SplTokenSwapStateCoder;
