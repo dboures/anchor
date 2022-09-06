@@ -192,6 +192,25 @@ pub enum Command {
         )]
         cargo_args: Vec<String>,
     },
+    #[clap(name = "fuzz", alias = "f")]
+    /// Runs program data fuzzing tests against a localnetwork.
+    Fuzz {
+        #[clap(long)]
+        detach: bool,
+        #[clap(multiple_values = true)]
+        args: Vec<String>,
+        /// Arguments to pass to the underlying `cargo build-bpf` command.
+        #[clap(
+            required = false,
+            takes_value = true,
+            multiple_values = true,
+            last = true
+        )]
+        cargo_args: Vec<String>,
+        // probably need an accounts file to pre fill the accounts?
+
+        // maybe need to initialize state somehow (certain transactions must be done already??)
+    },
     /// Creates a new program.
     New { name: String },
     /// Commands for interacting with interface definitions.
@@ -473,6 +492,11 @@ pub fn entry(opts: Opts) -> Result<()> {
             args,
             cargo_args,
         ),
+        Command::Fuzz {
+            detach,
+            args,
+            cargo_args,
+        } => fuzz(&opts.cfg_override, detach, args, cargo_args),
         #[cfg(feature = "dev")]
         Command::Airdrop { .. } => airdrop(&opts.cfg_override),
         Command::Cluster { subcmd } => cluster(subcmd),
@@ -1847,6 +1871,144 @@ fn write_idl(idl: &Idl, out: OutFile) -> Result<()> {
 enum OutFile {
     Stdout,
     File(PathBuf),
+}
+
+// Builds, deploys, and tests all workspace programs in a single command.
+#[allow(clippy::too_many_arguments)]
+fn fuzz(
+    cfg_override: &ConfigOverride,
+    detach: bool,
+    extra_args: Vec<String>,
+    cargo_args: Vec<String>,
+) -> Result<()> {
+    with_workspace(cfg_override, |cfg| {
+        // Build.
+        build(
+            cfg_override,
+            None,
+            None,
+            false,
+            true,
+            None,
+            None,
+            None,
+            BootstrapMode::None,
+            None,
+            None,
+            cargo_args,
+            false,
+        )?;
+
+        let root = cfg.path().parent().unwrap().to_owned();
+        cfg.add_test_config(root)?;
+
+        deploy(cfg_override, None, None)?;
+
+        println!("\nRunning the fuzz");
+        run_fuzz(
+            cfg.path(),
+            cfg,
+            detach,
+            &cfg.test_validator,
+            &cfg.scripts,
+            &extra_args,
+        )?;
+        Ok(())
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_fuzz(
+    fuzz_path: impl AsRef<Path>,
+    cfg: &WithPath<Config>,
+    detach: bool,
+    test_validator: &Option<TestValidator>,
+    scripts: &ScriptsConfig,
+    extra_args: &[String],
+) -> Result<()> {
+    println!("\nRunning fuzzer: {:#?}\n", fuzz_path.as_ref());
+    // Start local test validator.
+    let flags = validator_flags(cfg, test_validator)?;
+    let validator_handle = Some(start_test_validator(
+        cfg,
+        test_validator,
+        Some(flags),
+        true,
+    )?);
+
+    let url = cluster_url(cfg, test_validator);
+
+    let node_options = format!(
+        "{} {}",
+        match std::env::var_os("NODE_OPTIONS") {
+            Some(value) => value
+                .into_string()
+                .map_err(std::env::VarError::NotUnicode)?,
+            None => "".to_owned(),
+        },
+        get_node_dns_option()?,
+    );
+
+    // Setup log reader.
+    let log_streams = stream_logs(cfg, &url);
+
+    // Run the fuzzer.
+    let test_result: Result<_> = {
+        let cmd = scripts
+            .get("test")
+            .expect("Not able to find script for `test`")
+            .clone();
+        println!("{:?}", cmd);
+        let mut args: Vec<&str> = cmd
+            .split(' ')
+            .chain(extra_args.iter().map(|arg| arg.as_str()))
+            .collect();
+        let program = args.remove(0);
+
+        std::process::Command::new(program)
+            .args(args)
+            .env("ANCHOR_PROVIDER_URL", url)
+            .env("ANCHOR_WALLET", cfg.provider.wallet.to_string())
+            .env("NODE_OPTIONS", node_options)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .output()
+            .map_err(anyhow::Error::from)
+            .context(cmd)
+    };
+
+    // Keep validator running if needed.
+    if test_result.is_ok() && detach {
+        println!("Local validator still running. Press Ctrl + C quit.");
+        std::io::stdin().lock().lines().next().unwrap().unwrap();
+    }
+
+    // Check all errors and shut down.
+    if let Some(mut child) = validator_handle {
+        if let Err(err) = child.kill() {
+            println!("Failed to kill subprocess {}: {}", child.id(), err);
+        }
+    }
+    for mut child in log_streams? {
+        if let Err(err) = child.kill() {
+            println!("Failed to kill subprocess {}: {}", child.id(), err);
+        }
+    }
+
+    // Must exist *after* shutting down the validator and log streams.
+    match test_result {
+        Ok(exit) => {
+            if !exit.status.success() {
+                std::process::exit(exit.status.code().unwrap());
+            }
+        }
+        Err(err) => {
+            println!("Failed to run test: {:#}", err);
+            return Err(err);
+        }
+    }
+
+    Ok(())
 }
 
 // Builds, deploys, and tests all workspace programs in a single command.
